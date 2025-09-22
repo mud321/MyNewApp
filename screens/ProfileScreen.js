@@ -1,12 +1,27 @@
 import { StyleSheet, Text, View, SafeAreaView, Pressable, Image } from 'react-native';
-import React from 'react';
-import { auth } from '../firebase';
+import React, { useEffect, useState } from 'react';
+import { auth, db } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { useNavigation } from '@react-navigation/native';
+import { doc, getDoc } from 'firebase/firestore';
 
 const ProfileScreen = () => {
   const user = auth.currentUser;
   const navigation = useNavigation();
+  const [userData, setUserData] = useState(null); // ✅ store Firestore data
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (user) {
+        const docRef = doc(db, "user", user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setUserData(docSnap.data()); // ✅ load Firestore data
+        }
+      }
+    };
+    fetchUserData();
+  }, [user]);
 
   const signOutUser = () => {
     signOut(auth)
@@ -29,9 +44,13 @@ const ProfileScreen = () => {
           style={styles.avatar}
         />
 
-        {/* Welcome Text */}
-        <Text style={styles.label}>Welcome Back 👋</Text>
+        {/* ✅ Show Name from Firestore */}
+        <Text style={styles.label}>
+          Hello, {userData?.name || "User"} 👋
+        </Text>
+
         <Text style={styles.email}>{user?.email}</Text>
+        <Text style={styles.phone}>{userData?.phone}</Text>
 
         {/* Sign Out Button */}
         <Pressable onPress={signOutUser} style={styles.signOutButton}>
@@ -80,6 +99,11 @@ const styles = StyleSheet.create({
   email: {
     fontSize: 16,
     color: '#666',
+    marginBottom: 8,
+  },
+  phone: {
+    fontSize: 15,
+    color: '#444',
     marginBottom: 20,
   },
   signOutButton: {

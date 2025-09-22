@@ -1,358 +1,530 @@
-import React from "react";
-import { StyleSheet, View, Text, ScrollView, Pressable } from 'react-native';
-import { useDispatch, useSelector } from "react-redux";
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { decrementQty, incrementQty } from "../ProductReducer";
-import { doc, setDoc } from "firebase/firestore";
+// import React from "react";
+// import { View, Text, ScrollView, StyleSheet, Pressable } from "react-native";
+// import { useNavigation } from "@react-navigation/native";
+// import { auth, db } from "../firebase";
+// import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+
+// const CartScreen = ({ route }) => {
+//   const navigation = useNavigation();
+//   const { cart = [], selectedTime, no_Of_days, pickUpDate, pickUpLocation, setCart } = route.params || {};
+
+//   const total = cart.reduce(
+//     (sum, item) =>
+//       sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+//     0
+//   );
+
+//   const placeOrder = async () => {
+//     try {
+//       if (!auth.currentUser) {
+//         alert("Please log in to place an order.");
+//         return;
+//       }
+
+//       if (!cart.length) {
+//         alert("Your cart is empty.");
+//         return;
+//       }
+
+//       const cleanedCart = cart.map(item => ({
+//         name: item?.name || "",
+//         quantity: Number(item?.quantity) || 0,
+//         price: Number(item?.price) || 0,
+//       }));
+
+//       await addDoc(collection(db, "orders"), {
+//         userId: auth.currentUser.uid,
+//         service: cleanedCart.map(i => i.name).join(", "),
+//         price: total,
+//         cart: cleanedCart,
+//         selectedTime: selectedTime || "",
+//         no_Of_days: Number(no_Of_days) || 0,
+//         pickUpDate: pickUpDate || "",
+//         pickUpLocation: pickUpLocation || "", // ✅ Map / Address save
+//         total: Number(total) || 0,
+//         status: "Pending",
+//         createdAt: serverTimestamp(),
+//       });
+
+//       alert("Order placed successfully!");
+
+//       // ✅ Clear cart
+//       if (setCart) {
+//         setCart([]);
+//       }
+//       route.params.cart = [];
+
+//       // ✅ Redirect home
+//       navigation.reset({
+//         index: 0,
+//         routes: [{ name: "Home", params: { cart: [] } }],
+//       });
+
+//     } catch (error) {
+//       console.error("Error placing order: ", error);
+//       alert("Failed to place order. Please try again.");
+//     }
+//   };
+
+//   return (
+//     <ScrollView style={{ padding: 16 }}>
+//       <Text style={styles.heading}>Cart</Text>
+//       {cart.length === 0 ? (
+//         <Text>No items in the cart</Text>
+//       ) : (
+//         <>
+//           {cart.map((item, index) => (
+//             <View key={index} style={styles.itemContainer}>
+//               <Text>
+//                 {item?.name} x{item?.quantity} - Rs
+//                 {(Number(item?.price) || 0) * (Number(item?.quantity) || 0)}
+//               </Text>
+//             </View>
+//           ))}
+//           <Text style={styles.total}>Total: Rs{total}</Text>
+//           <Pressable style={styles.button} onPress={placeOrder}>
+//             <Text style={styles.buttonText}>Place Order</Text>
+//           </Pressable>
+//         </>
+//       )}
+//     </ScrollView>
+//   );
+// };
+
+// const styles = StyleSheet.create({
+//   heading: { fontSize: 22, fontWeight: "bold", marginBottom: 10 },
+//   itemContainer: {
+//     backgroundColor: "#eee",
+//     padding: 10,
+//     marginVertical: 5,
+//     borderRadius: 8,
+//   },
+//   total: { marginTop: 20, fontSize: 18, fontWeight: "bold" },
+//   button: {
+//     backgroundColor: "#088F8F",
+//     padding: 12,
+//     borderRadius: 8,
+//     alignItems: "center",
+//     marginTop: 20,
+//   },
+//   buttonText: { color: "white", fontWeight: "bold" },
+// });
+
+// export default CartScreen;
+
+
+// CartScreen.js
+import React, { useState } from "react";
+import { View, Text, ScrollView, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { auth, db } from "../firebase";
-import {
-    cleanCart,
-    decrementQuantity,
-    incrementQuantity,
-  } from "../CartReducer";
-const CartScreen = () => {
-    const cart = useSelector((state) => state.cart.cart);
-    const total = cart.map(item => item.quantity * item.price).reduce((curr, prev) => curr + prev, 0);
-    const route=useRoute();
-    const navigation = useNavigation();
-  const userUid = auth.currentUser.uid;
-  const dispatch = useDispatch();
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { Ionicons } from "@expo/vector-icons";
+
+const CartScreen = ({ route }) => {
+  const navigation = useNavigation();
+  const [loading, setLoading] = useState(false);
+
+  const {
+    cart = [],
+    customerName,
+    phone,
+    selectedDate,
+    selectedTime,
+    delivery,
+    address,
+    location,
+    setCart,
+  } = route.params || {};
+
+  const total = cart.reduce(
+    (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+    0
+  );
+
   const placeOrder = async () => {
-    navigation.navigate("Order");
-    dispatch(cleanCart());
-    await setDoc(
-      doc(db, "user", `${userUid}`),
-      {
-        orders: { ...cart },
-        pickUpDetails: route.params,
-      },
-      {
-        merge: true,
+    if (loading) return;
+    
+    try {
+      setLoading(true);
+
+      if (!auth.currentUser) {
+        Alert.alert("Login Required", "Please log in to place an order.");
+        return;
       }
-    );
+
+      if (!cart.length) {
+        Alert.alert("Cart Empty", "Please add items to your cart first.");
+        return;
+      }
+
+      // Validate required fields
+      if (!customerName?.trim() || !phone?.trim() || !address?.trim()) {
+        Alert.alert("Missing Information", "Please fill in all customer details.");
+        return;
+      }
+
+      const cleanedCart = cart.map((item) => ({
+        name: item?.name || "Unknown Item",
+        quantity: Number(item?.quantity) || 1,
+        price: Number(item?.price) || 0,
+      }));
+
+      // FIXED: Ensure all customer data is properly stored
+      const orderData = {
+        // User identification
+        userId: auth.currentUser.uid,
+        userEmail: auth.currentUser.email,
+        
+        // Customer information - THIS IS THE FIX
+        customerName: customerName.trim(),
+        phone: phone.trim(),
+        
+        // Location data - FIXED FORMAT
+        pickUpLocation: address.trim(),
+        location: location && location.latitude && location.longitude ? {
+          lat: parseFloat(location.latitude),
+          lng: parseFloat(location.longitude)
+        } : null,
+        
+        // Order details
+        cart: cleanedCart,
+        service: cleanedCart.map((item) => item.name).join(", "),
+        pickUpDate: selectedDate || new Date().toDateString(),
+        selectedTime: selectedTime || "",
+        delivery: delivery || "",
+        total: Number(total) || 0,
+        
+        // Status and timestamps
+        status: "Pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        
+        // Additional metadata for vendor dashboard
+        orderNumber: `ORD-${Date.now()}`,
+        customerInfo: {
+          name: customerName.trim(),
+          phoneNumber: phone.trim(),
+          address: address.trim(),
+          coordinates: location && location.latitude && location.longitude ? {
+            latitude: parseFloat(location.latitude),
+            longitude: parseFloat(location.longitude)
+          } : null
+        }
+      };
+
+      console.log("📝 Order data being saved:", orderData);
+      
+      const docRef = await addDoc(collection(db, "orders"), orderData);
+      console.log("✅ Order placed successfully with ID:", docRef.id);
+
+      Alert.alert(
+        "Order Placed Successfully!", 
+        `Order ID: ${docRef.id.slice(0, 8)}\nCustomer: ${customerName}\nPhone: ${phone}\nTotal: Rs${total}`,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              if (setCart) setCart([]);
+              navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+            }
+          }
+        ]
+      );
+
+    } catch (error) {
+      console.error("❌ Error placing order:", error);
+      Alert.alert(
+        "Order Failed", 
+        `Error: ${error.message}\nPlease check your connection and try again.`,
+        [{ text: "Try Again", style: "default" }]
+      );
+    } finally {
+      setLoading(false);
+    }
   };
-    return (
-      <>
-        <ScrollView style={{ marginTop: 50 }}>
-            {total === 0 ? (
-                <View style={{ justifyContent: "center", alignItems: "center" }}>
-                    <Text style={{ marginTop: 40 }}>Your cart is Empty</Text>
-                </View>
-            ) : (
-                <>
-                    <View style={{padding:10,flexDirection:"row",alignItems:"center"}}>
-                     <Ionicons onPress={navigation.goBack} name="arrow-back" size={24} color="black"/>
-                     <Text>Your Bucket</Text>
-                    </View>
-                    <Pressable
-              style={{
-                backgroundColor: "white",
-                borderRadius: 12,
-                marginLeft: 10,
-                marginRight: 10,
-                padding: 14,
-              }}
-            >
-              {cart.map((item, index) => (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginVertical: 12,
-                
-                  }}
-                  key={index}
-                >
-                  <Text style={{ width: 100, fontSize: 16, fontWeight: "500" }}>
-                    {item.name}
-                  </Text>
 
-                  {/* - + button */}
-                  <Pressable
-                    style={{
-                      flexDirection: "row",
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      alignItems: "center",
-                      borderColor: "#BEBEBE",
-                      borderWidth: 0.5,
-                      borderRadius: 10,
-                    }}
-                  >
-                    <Pressable
-                      onPress={() => {
-                        dispatch(decrementQuantity(item)); // cart
-                        dispatch(decrementQty(item)); // product
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          color: "#088F8F",
-                          paddingHorizontal: 6,
-                          fontWeight: "600",
-                        }}
-                      >
-                        -
-                      </Text>
-                    </Pressable>
+  return (
+    <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.heading}>Order Summary</Text>
+      </View>
 
-                    <Pressable>
-                      <Text
-                        style={{
-                          fontSize: 19,
-                          color: "#088F8F",
-                          paddingHorizontal: 8,
-                          fontWeight: "600",
-                        }}
-                      >
-                        {item.quantity}
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      onPress={() => {
-                        dispatch(incrementQuantity(item)); // cart
-                        dispatch(incrementQty(item)); //product
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          color: "#088F8F",
-                          paddingHorizontal: 6,
-                          fontWeight: "600",
-                        }}
-                      >
-                        +
-                      </Text>
-                    </Pressable>
-                  </Pressable>
-
-                  <Text style={{ fontSize: 16, fontWeight: "500" }}>
-                    Rs{item.price * item.quantity}
+      {cart.length === 0 ? (
+        <View style={styles.emptyCart}>
+          <Ionicons name="cart-outline" size={64} color="#ccc" />
+          <Text style={styles.emptyText}>Your cart is empty</Text>
+          <Pressable 
+            style={styles.backButton} 
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          {/* Cart Items */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Items</Text>
+            {cart.map((item, index) => (
+              <View key={index} style={styles.itemContainer}>
+                <View style={styles.itemDetails}>
+                  <Text style={styles.itemName}>{item?.name || "Unknown Item"}</Text>
+                  <Text style={styles.itemMeta}>
+                    Qty: {item?.quantity || 1} × Rs{item?.price || 0}
                   </Text>
                 </View>
-              ))}
-            </Pressable>
-            <View style={{ marginHorizontal: 10 }}>
-              <Text style={{ fontSize: 16, fontWeight: "bold", marginTop: 30 }}>
-                Billing Details
-              </Text>
-              <View
-                style={{
-                  backgroundColor: "white",
-                  borderRadius: 7,
-                  padding: 10,
-                  marginTop: 15,
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text
-                    style={{ fontSize: 18, fontWeight: "400", color: "gray" }}
-                  >
-                    Item Total
-                  </Text>
-                  <Text style={{ fontSize: 18, fontWeight: "400" }}>
-                    Rs{total}
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginVertical: 8,
-                  }}
-                >
-                  <Text
-                    style={{ fontSize: 18, fontWeight: "400", color: "gray" }}
-                  >
-                    Delivery Fee | 1.2KM
-                  </Text>
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "400",
-                      color: "#088F8F",
-                    }}
-                  >
-                    FREE
-                  </Text>
-                </View>
-
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Text
-                    style={{ fontSize: 18, fontWeight: "500", color: "gray" }}
-                  >
-                    Free Delivery on Your order
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    borderColor: "gray",
-                    height: 1,
-                    borderWidth: 0.5,
-                    marginTop: 10,
-                  }}
-                />
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginVertical: 10,
-                  }}
-                >
-                  <Text
-                    style={{ fontSize: 18, fontWeight: "500", color: "gray" }}
-                  >
-                    selected Date
-                  </Text>
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "400",
-                      color: "#088F8F",
-                    }}
-                  >
-                  {/* {route.params.pickUpDate} */}
-                  </Text>
-                  
-                </View>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text
-                    style={{ fontSize: 18, fontWeight: "500", color: "gray" }}
-                  >
-                    No Of Days
-                  </Text>
-
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "400",
-                      color: "#088F8F",
-                    }}
-                  >
-                    {route.params.no_Of_days}
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginVertical: 10,
-                  }}
-                >
-                  <Text
-                    style={{ fontSize: 18, fontWeight: "500", color: "gray" }}
-                  >
-                    selected Pick Up Time
-                  </Text>
-
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "400",
-                      color: "#088F8F",
-                    }}
-                  >
-                    {route.params.selectedTime}
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    borderColor: "gray",
-                    height: 1,
-                    borderWidth: 0.5,
-                    marginTop: 10,
-                  }}
-                />
-
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginVertical: 8,
-                  }}
-                >
-                  <Text style={{ fontSize: 18, fontWeight: "bold" }}>
-                    To Pay
-                  </Text>
-                  <Text style={{ fontSize: 18, fontWeight: "bold" }}>
-                    Rs{total + 95}
-                  </Text>
-                </View>
+                <Text style={styles.itemTotal}>
+                  Rs{(Number(item?.price) || 0) * (Number(item?.quantity) || 0)}
+                </Text>
               </View>
-            </View>
-                </>
-
-            )}
-            
-        </ScrollView>
-       {total === 0 ? null : (
-        <Pressable
-          style={{
-            backgroundColor: "#088F8F",
-            marginTop: "auto",
-            padding: 10,
-            marginBottom: 40,
-            margin: 15,
-            borderRadius: 7,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <View>
-            <Text style={{ fontSize: 17, fontWeight: "600", color: "white" }}>
-              {cart.length} items | $ {total}
-            </Text>
-            <Text
-              style={{
-                fontSize: 15,
-                fontWeight: "400",
-                color: "white",
-                marginVertical: 6,
-              }}
-            >
-              extra charges might apply
-            </Text>
+            ))}
           </View>
 
-          <Pressable onPress={placeOrder}>
-            <Text style={{ fontSize: 17, fontWeight: "600", color: "white" }}>
-              Place Order
-            </Text>
-          </Pressable>
-        </Pressable>
-      )}
-    </>
-  
-    );
-};
-export default CartScreen;
-const styles = StyleSheet.create({
+          {/* Customer Information - SHOWING WHAT WILL BE SAVED */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Customer Details (Will be visible to vendor)</Text>
+            <View style={styles.infoContainer}>
+              <View style={styles.infoRow}>
+                <Ionicons name="person" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Name:</Text>
+                <Text style={styles.infoValue}>{customerName || "Not provided"}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="call" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Phone:</Text>
+                <Text style={styles.infoValue}>{phone || "Not provided"}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="location" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Address:</Text>
+                <Text style={styles.infoValue} numberOfLines={2}>{address || "Not provided"}</Text>
+              </View>
+              {location?.latitude && location?.longitude && (
+                <View style={styles.infoRow}>
+                  <Ionicons name="map" size={20} color="#666" />
+                  <Text style={styles.infoLabel}>GPS:</Text>
+                  <Text style={styles.infoValue}>
+                    {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
 
-})
+          {/* Order Details */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Pickup Details</Text>
+            <View style={styles.infoContainer}>
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Date:</Text>
+                <Text style={styles.infoValue}>
+                  {selectedDate || new Date().toDateString()}
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="time" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Time:</Text>
+                <Text style={styles.infoValue}>{selectedTime || "Not selected"}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Ionicons name="car" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Delivery:</Text>
+                <Text style={styles.infoValue}>{delivery || "Not selected"}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Total and Place Order */}
+          <View style={styles.totalSection}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total Amount:</Text>
+              <Text style={styles.totalValue}>Rs {total}</Text>
+            </View>
+            
+            <Pressable 
+              style={[styles.placeOrderButton, loading && styles.disabledButton]} 
+              onPress={placeOrder}
+              disabled={loading}
+            >
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="white" size="small" />
+                  <Text style={styles.loadingText}>Placing Order...</Text>
+                </View>
+              ) : (
+                <Text style={styles.placeOrderText}>Place Order</Text>
+              )}
+            </Pressable>
+
+            <Pressable 
+              style={styles.backButton} 
+              onPress={() => navigation.goBack()}
+              disabled={loading}
+            >
+              <Text style={styles.backButtonText}>Go Back</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#f9f9f9",
+  },
+  header: {
+    backgroundColor: "#fff",
+    padding: 20,
+    alignItems: "center",
+    elevation: 2,
+  },
+  heading: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  
+  section: {
+    backgroundColor: "#fff",
+    margin: 15,
+    padding: 15,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 10,
+  },
+  
+  itemContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  itemDetails: {
+    flex: 1,
+  },
+  itemName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#333",
+  },
+  itemMeta: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 2,
+  },
+  itemTotal: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#088F8F",
+  },
+  
+  infoContainer: {
+    gap: 10,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#666",
+    minWidth: 60,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: "#333",
+    flex: 1,
+  },
+  
+  totalSection: {
+    backgroundColor: "#fff",
+    margin: 15,
+    padding: 20,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+  },
+  totalValue: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#088F8F",
+  },
+  
+  placeOrderButton: {
+    backgroundColor: "#088F8F",
+    padding: 15,
+    borderRadius: 10,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  disabledButton: {
+    backgroundColor: "#ccc",
+  },
+  placeOrderText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  loadingText: {
+    color: "white",
+    fontSize: 16,
+  },
+  
+  backButton: {
+    backgroundColor: "#6c757d",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  backButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  
+  emptyCart: {
+    alignItems: "center",
+    marginTop: 100,
+    paddingHorizontal: 40,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: "#666",
+    marginTop: 20,
+    marginBottom: 30,
+  },
+});
+
+export default CartScreen;
